@@ -191,6 +191,28 @@ sudo chmod 664 backend/.env
 
 ---
 
+## 🛑 Toggling Panel Services (Port Conflicts)
+
+If you are developing other projects on the same machine (using commands like `composer dev`, `npm run dev`, or `php artisan serve`), you might encounter port conflicts (e.g., ports 80, 5432, or 53 already in use). 
+
+You can use the included `panel-service.sh` script to temporarily disable all hosting panel background services (Nginx, PostgreSQL, Redis, Postfix, Bind9, etc.) and free up your system resources.
+
+```bash
+# Make the script executable (only needed once)
+chmod +x panel-service.sh
+
+# Stop all panel services and free up ports
+sudo ./panel-service.sh stop
+
+# Start all panel services when you want to use the panel again
+sudo ./panel-service.sh start
+
+# Check the status of all panel services
+sudo ./panel-service.sh status
+```
+
+---
+
 ## 💻 Local Development
 
 ```bash
