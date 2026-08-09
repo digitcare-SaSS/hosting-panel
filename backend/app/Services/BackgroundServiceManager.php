@@ -41,7 +41,7 @@ class BackgroundServiceManager
                     'name'        => 'Queue Worker',
                     'slug'        => 'queue-worker',
                     'type'        => 'php-worker',
-                    'command'     => 'php artisan queue:work --sleep=3 --tries=3 --max-time=60',
+                    'command'     => 'php artisan queue:work --sleep=3 --tries=3 --max-time=3600',
                     'description' => 'Processes queued jobs (emails, notifications, etc.)',
                     'recommended' => true,
                 ],
