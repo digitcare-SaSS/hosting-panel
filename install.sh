@@ -248,7 +248,7 @@ mkdir -p /etc/systemd/system/php8.4-fpm.service.d
 cat > /etc/systemd/system/php8.4-fpm.service.d/override.conf <<'EOF'
 [Service]
 # Whitelist panel directories for writing since ProtectSystem=full is default
-ReadWritePaths=/etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /etc/nginx /etc/bind /etc/postfix /etc/dovecot /etc/opendkim
+ReadWritePaths=/etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /etc/nginx /etc/bind /etc/postfix /etc/dovecot /etc/opendkim /etc/systemd/system
 EOF
 systemctl daemon-reload 2>/dev/null || true
 systemctl restart php8.4-fpm.service 2>/dev/null || true
