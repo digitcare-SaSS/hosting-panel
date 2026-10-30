@@ -107,6 +107,8 @@ fi
 rm -f "$SUDOERS_TMP"
 
 echo "==> 5. Restarting panel services"
+# php8.4-fpm won't start if any of its ReadWritePaths is missing
+mkdir -p /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /etc/nginx /etc/bind /etc/postfix /etc/dovecot /etc/opendkim
 systemctl daemon-reload
 systemctl restart php8.4-fpm sada-mia-queue
 

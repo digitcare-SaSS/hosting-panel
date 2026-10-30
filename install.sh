@@ -250,6 +250,9 @@ else
 fi
 
 echo "==> 2b. Configuring PHP-FPM Systemd Security (ReadWritePaths)"
+# systemd refuses to start php8.4-fpm if any ReadWritePaths entry is missing (502 on every API call),
+# and on a fresh server certbot, BIND9, Postfix etc. haven't created theirs yet
+mkdir -p /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /etc/nginx /etc/bind /etc/postfix /etc/dovecot /etc/opendkim
 mkdir -p /etc/systemd/system/php8.4-fpm.service.d
 cat > /etc/systemd/system/php8.4-fpm.service.d/override.conf <<'EOF'
 [Service]
@@ -968,6 +971,15 @@ ln -sf /etc/nginx/sites-available/00-default /etc/nginx/sites-enabled/
 fi
 
 nginx -t && systemctl restart nginx
+
+# Every API call returns 502 without PHP-FPM, so fail loudly here instead of reporting success
+systemctl reset-failed php8.4-fpm 2>/dev/null || true
+systemctl restart php8.4-fpm || true
+if ! systemctl is-active --quiet php8.4-fpm; then
+    echo "==> ERROR: php8.4-fpm is not running, the panel API will return 502 Bad Gateway."
+    journalctl -u php8.4-fpm -n 20 --no-pager || true
+    exit 1
+fi
 
 echo "==================================================="
 echo "  Installation Complete!                           "
