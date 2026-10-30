@@ -162,19 +162,18 @@ Once finished, go to `http://<YOUR_SERVER_IP>:<YOUR_PORT>` in your browser.
 
 ## 🔄 Updating the Panel
 
-To update an installed panel to the latest code, run `update.sh` from the panel directory:
+To update an installed panel, pull the latest code, then run `update.sh` from the panel directory:
 
 ```bash
 cd sada-mia-hosting-panel
+git pull
 sudo ./update.sh
 ```
 
-It pulls the latest code, installs dependencies, runs database migrations, rebuilds the frontend, refreshes the migration helper and restarts the panel services. Your apps, settings, `backend/.env`, `APP_KEY` and admin password are kept. Don't re-run `install.sh` to update: it resets `backend/.env`, generates a new `APP_KEY` and resets the admin password.
+It installs dependencies, runs database migrations, rebuilds the frontend, refreshes the migration helper and restarts the panel services. Your apps, settings, `backend/.env`, `APP_KEY` and admin password are kept. Don't re-run `install.sh` to update: it resets `backend/.env`, generates a new `APP_KEY` and resets the admin password.
 
 - **Backup:** `backend/.env` and the panel database are saved to `/var/backups/sada-mia-update/<timestamp>/` before anything changes.
 - **Running jobs:** if a queue job is running (for example a server migration), the update stops, because restarting the queue worker would kill it. Wait for it to finish, or add `--force`.
-- **No git checkout:** if the panel directory isn't a git clone, copy the new code in and run `sudo ./update.sh --skip-pull`.
-- **Local changes:** the update stops if `git pull` can't fast-forward. Commit or stash your changes first.
 
 To migrate from an old server, update it first so it has the migration feature.
 

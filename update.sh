@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Updates an installed panel to the latest code without touching its data.
+# Applies the code already in this directory (pull it first) to an installed panel without touching its data.
 # Unlike re-running install.sh, this keeps backend/.env, the APP_KEY and the admin password.
 
 echo "==================================================="
@@ -14,13 +14,11 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 FORCE=false
-SKIP_PULL=false
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE=true ;;
-        --skip-pull) SKIP_PULL=true ;;
         *)
-            echo "Usage: sudo ./update.sh [--force] [--skip-pull]"
+            echo "Usage: sudo ./update.sh [--force]"
             exit 1
             ;;
     esac
@@ -38,48 +36,25 @@ fi
 DB_FILE=$(grep -E '^DB_DATABASE=' "$BACKEND_DIR/.env" | cut -d= -f2- | tr -d '"' || true)
 DB_FILE=${DB_FILE:-$BACKEND_DIR/database/database.sqlite}
 
-if [ "$SKIP_PULL" = false ]; then
-    if [ ! -d "$PANEL_DIR/.git" ]; then
-        echo "$PANEL_DIR is not a git checkout, so there is nothing to pull."
-        echo "Re-clone the repository (see README) or copy the new code in, then run: sudo ./update.sh --skip-pull"
-        exit 1
-    fi
-
-    # Restarting the queue worker kills running jobs (a server migration can take hours)
-    RUNNING_JOBS=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM jobs WHERE reserved_at IS NOT NULL;" 2>/dev/null || echo 0)
-    if [ "$RUNNING_JOBS" -gt 0 ] && [ "$FORCE" = false ]; then
-        echo "$RUNNING_JOBS queue job(s) are running right now (for example a server migration or a deployment)."
-        echo "Updating would restart the queue worker and kill them. Wait for them to finish, or re-run with --force."
-        exit 1
-    fi
-
-    echo "==> 1. Backing up .env and the panel database"
-    BACKUP_DIR="/var/backups/sada-mia-update/$(date +%Y%m%d-%H%M%S)"
-    mkdir -p "$BACKUP_DIR"
-    chmod 0700 "$BACKUP_DIR"
-    cp "$BACKEND_DIR/.env" "$BACKUP_DIR/backend.env"
-    [ -f "$PANEL_DIR/.env" ] && cp "$PANEL_DIR/.env" "$BACKUP_DIR/panel.env"
-    # .backup gives a consistent copy even while the panel is writing to it
-    sqlite3 "$DB_FILE" ".backup '$BACKUP_DIR/database.sqlite'"
-    echo "    Saved to $BACKUP_DIR"
-
-    echo "==> 2. Pulling the latest code"
-    # Run git as the checkout's owner to avoid git's "dubious ownership" refusal under root
-    REPO_OWNER=$(stat -c %U "$PANEL_DIR")
-    OLD_REV=$(sudo -u "$REPO_OWNER" git rev-parse --short HEAD)
-    if ! sudo -u "$REPO_OWNER" git pull --ff-only; then
-        echo "git pull failed. Commit or stash local changes in $PANEL_DIR, then run the update again."
-        exit 1
-    fi
-    NEW_REV=$(sudo -u "$REPO_OWNER" git rev-parse --short HEAD)
-    echo "    $OLD_REV -> $NEW_REV"
-
-    # Continue with the freshly pulled updater so new update steps apply right away
-    export OLD_REV NEW_REV BACKUP_DIR
-    exec "$PANEL_DIR/update.sh" --skip-pull
+# Restarting the queue worker kills running jobs (a server migration can take hours)
+RUNNING_JOBS=$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM jobs WHERE reserved_at IS NOT NULL;" 2>/dev/null || echo 0)
+if [ "$RUNNING_JOBS" -gt 0 ] && [ "$FORCE" = false ]; then
+    echo "$RUNNING_JOBS queue job(s) are running right now (for example a server migration or a deployment)."
+    echo "Updating would restart the queue worker and kill them. Wait for them to finish, or re-run with --force."
+    exit 1
 fi
 
-echo "==> 3. Updating the backend"
+echo "==> 1. Backing up .env and the panel database"
+BACKUP_DIR="/var/backups/sada-mia-update/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+chmod 0700 "$BACKUP_DIR"
+cp "$BACKEND_DIR/.env" "$BACKUP_DIR/backend.env"
+[ -f "$PANEL_DIR/.env" ] && cp "$PANEL_DIR/.env" "$BACKUP_DIR/panel.env"
+# .backup gives a consistent copy even while the panel is writing to it
+sqlite3 "$DB_FILE" ".backup '$BACKUP_DIR/database.sqlite'"
+echo "    Saved to $BACKUP_DIR"
+
+echo "==> 2. Updating the backend"
 cd "$BACKEND_DIR"
 php artisan down || true
 trap 'cd "$BACKEND_DIR" && php artisan up >/dev/null 2>&1 || true' EXIT
@@ -95,14 +70,14 @@ php artisan optimize:clear
 chown -R www-data:www-data storage bootstrap/cache
 chown www-data:www-data database "$DB_FILE"*
 
-echo "==> 4. Building the frontend"
+echo "==> 3. Building the frontend"
 cd "$PANEL_DIR/frontend"
 npm install --no-audit --no-fund
 npm run build
 chown -R www-data:www-data dist
 chmod -R 755 dist
 
-echo "==> 5. Refreshing system packages and the migration helper"
+echo "==> 4. Refreshing system packages and the migration helper"
 for pkg in pigz openssl sqlite3; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         apt-get install -y $pkg
@@ -131,7 +106,7 @@ else
 fi
 rm -f "$SUDOERS_TMP"
 
-echo "==> 6. Restarting panel services"
+echo "==> 5. Restarting panel services"
 systemctl daemon-reload
 systemctl restart php8.4-fpm sada-mia-queue
 
@@ -141,6 +116,5 @@ trap - EXIT
 
 echo "==================================================="
 echo "  Update Complete!"
-[ -n "$OLD_REV" ] && echo "  Version:   $OLD_REV -> $NEW_REV"
-[ -n "$BACKUP_DIR" ] && echo "  Backup:    $BACKUP_DIR"
+echo "  Backup:    $BACKUP_DIR"
 echo "==================================================="
