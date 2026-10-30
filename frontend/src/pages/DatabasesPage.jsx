@@ -162,7 +162,7 @@ export default function DatabasesPage() {
           <Button variant="outline" onClick={() => window.location.href = '/databases/users'}>
             <Users className="mr-2 h-4 w-4" /> Manage Users
           </Button>
-          <Button variant="outline" onClick={() => window.open('/adminer', '_blank')}>
+          <Button variant="outline" onClick={() => window.open('/adminer/?pgsql=127.0.0.1', '_blank')}>
             <ExternalLink className="mr-2 h-4 w-4" /> Open Adminer
           </Button>
         </div>

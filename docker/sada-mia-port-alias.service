@@ -1,0 +1,10 @@
+[Unit]
+Description=Sada Mia Panel loopback aliases for published app ports (8080->80, 8443->443)
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/sada-mia-port-alias
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

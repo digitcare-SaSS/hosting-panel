@@ -558,6 +558,15 @@ function adminer_object() {
     };
 }
 
+// Only PostgreSQL is installed: send driverless URLs (Adminer defaults to
+// MySQL) to the PostgreSQL login. Static assets use ?file / ?script.
+if ($_SERVER["REQUEST_METHOD"] === "GET" && !isset($_GET["pgsql"]) && !isset($_GET["file"]) && !isset($_GET["script"])) {
+    $query = $_GET;
+    unset($query["server"]);
+    header("Location: ?" . http_build_query(["pgsql" => "127.0.0.1"] + $query));
+    exit;
+}
+
 if (isset($_POST["auth"])) {
     $_POST["driver"] = $_POST["auth"]["driver"] ?? "pgsql";
     $_POST["server"] = $_POST["auth"]["server"] ?? "127.0.0.1";

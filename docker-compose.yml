@@ -1,0 +1,22 @@
+services:
+  panel:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: sada-mia-hosting-panel:latest
+    container_name: sada-mia-panel
+    hostname: panel.local
+    # systemd as PID 1 + the panel's host orchestration need full privileges
+    privileged: true
+    cgroup: private
+    tty: true
+    stop_signal: SIGRTMIN+3
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    ports:
+      - "8083:8083" # Panel UI
+      - "8080:80"   # Hosted apps (HTTP)
+      - "8443:443"  # Hosted apps (HTTPS)
+    restart: unless-stopped

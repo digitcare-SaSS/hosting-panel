@@ -1,0 +1,13 @@
+.git
+.idea
+.vscode
+**/node_modules
+backend/vendor
+frontend/dist
+.env
+backend/.env
+backend/database/database.sqlite
+backend/storage/logs/*
+credentials.txt
+requirement.txt
+docker-compose.yml
