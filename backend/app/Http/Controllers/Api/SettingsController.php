@@ -42,6 +42,8 @@ class SettingsController extends Controller
 
             // ── Subscription & Payment Settings ──────────────────────────────
             'subscription_enabled'           => filter_var(Setting::get('subscription_enabled', false), FILTER_VALIDATE_BOOLEAN),
+            // Read-only here: toggled via PUT /migration/enabled (needs password confirmation)
+            'migration_enabled'              => \App\Services\Migration\MigrationSwitch::isOn(),
             'payment_callback_base_url'      => Setting::get('payment_callback_base_url'),
 
             // bKash

@@ -15,8 +15,42 @@ services:
       - /run
       - /run/lock
       - /tmp
+    # Hot reload: the backend source is served straight from this checkout
+    # (sada-mia-dev.service switches the container into dev mode when these are mounted).
+    # vendor/, .env, storage and the SQLite DB stay inside the container.
+    volumes:
+      - ./backend/app:/opt/sada-mia-hosting-panel/backend/app
+      - ./backend/routes:/opt/sada-mia-hosting-panel/backend/routes
+      - ./backend/config:/opt/sada-mia-hosting-panel/backend/config
+      - ./backend/database/migrations:/opt/sada-mia-hosting-panel/backend/database/migrations
+      - ./backend/database/seeders:/opt/sada-mia-hosting-panel/backend/database/seeders
+      - ./backend/resources:/opt/sada-mia-hosting-panel/backend/resources
+      - ./backend/tests:/opt/sada-mia-hosting-panel/backend/tests
+      - ./backend/composer.json:/opt/sada-mia-hosting-panel/backend/composer.json:ro
+      - ./backend/composer.lock:/opt/sada-mia-hosting-panel/backend/composer.lock:ro
+      - ./scripts:/opt/sada-mia-hosting-panel/scripts
     ports:
-      - "8083:8083" # Panel UI
+      - "8083:8083" # Panel UI (production build)
       - "8080:80"   # Hosted apps (HTTP)
       - "8443:443"  # Hosted apps (HTTPS)
     restart: unless-stopped
+
+  # Vite dev server with hot module reload: open http://localhost:5173
+  frontend:
+    image: node:22.11.0
+    container_name: sada-mia-frontend
+    working_dir: /app
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173 --strictPort"
+    environment:
+      VITE_API_PROXY_TARGET: http://panel:8083
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - panel
+    restart: unless-stopped
+
+volumes:
+  frontend_node_modules:

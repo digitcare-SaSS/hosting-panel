@@ -64,9 +64,12 @@ COPY docker/firstboot.sh /usr/local/bin/sada-mia-firstboot
 COPY docker/sada-mia-install.service /etc/systemd/system/sada-mia-install.service
 COPY docker/port-alias.sh /usr/local/bin/sada-mia-port-alias
 COPY docker/sada-mia-port-alias.service /etc/systemd/system/sada-mia-port-alias.service
+COPY docker/dev-setup.sh /usr/local/bin/sada-mia-dev-setup
+COPY docker/sada-mia-dev.service /etc/systemd/system/sada-mia-dev.service
 
-RUN chmod +x /usr/local/bin/sada-mia-firstboot /usr/local/bin/sada-mia-port-alias /opt/sada-mia-hosting-panel/*.sh \
-    && systemctl enable sada-mia-install.service sada-mia-port-alias.service
+RUN chmod +x /usr/local/bin/sada-mia-firstboot /usr/local/bin/sada-mia-port-alias /usr/local/bin/sada-mia-dev-setup \
+        /opt/sada-mia-hosting-panel/*.sh /opt/sada-mia-hosting-panel/scripts/*.sh \
+    && systemctl enable sada-mia-install.service sada-mia-port-alias.service sada-mia-dev.service
 
 WORKDIR /opt/sada-mia-hosting-panel
 

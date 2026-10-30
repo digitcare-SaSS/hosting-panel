@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import MigrationSettingCard from '@/components/MigrationSettingCard';
 
 export default function SettingsPage() {
   const { user, setUser, refreshBranding } = useAuth();
@@ -455,7 +456,7 @@ export default function SettingsPage() {
         <p className="text-muted-foreground mt-1">Manage your account settings and integrations.</p>
       </div>
 
-      <Tabs defaultValue="profile" className="flex flex-col md:flex-row gap-8" orientation="vertical">
+      <Tabs defaultValue={new URLSearchParams(window.location.search).get('tab') || 'profile'} className="flex flex-col md:flex-row gap-8" orientation="vertical">
         <aside className="md:w-64">
           <TabsList className="flex md:flex-col h-auto bg-transparent p-0 gap-1 overflow-x-auto md:overflow-x-visible">
             <TabsTrigger 
@@ -1372,6 +1373,7 @@ export default function SettingsPage() {
                 </CardFooter>
               </form>
             </Card>
+            <MigrationSettingCard />
           </TabsContent>
 
           <TabsContent value="branding" className="mt-0">

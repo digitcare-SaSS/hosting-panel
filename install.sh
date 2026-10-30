@@ -23,15 +23,21 @@ export $(grep -v '^#' .env | xargs)
 
 # Command-line arguments
 DO_CLEANUP=false
+POSITIONAL=()
 
-for arg in "$@"; do
-    case $arg in
+while [ $# -gt 0 ]; do
+    case "$1" in
         --cleanup)
             DO_CLEANUP=true
             shift
             ;;
+        *)
+            POSITIONAL+=("$1")
+            shift
+            ;;
     esac
 done
+set -- "${POSITIONAL[@]}"
 
 # Positional arguments override .env
 if [ -n "$1" ]; then
@@ -208,7 +214,7 @@ export DEBIAN_FRONTEND=noninteractive
 echo "==> 1. Updating packages"
 apt-get update
 # Install basic utilities if missing
-for pkg in curl wget git unzip sqlite3 libsqlite3-dev opendkim opendkim-tools certbot python3-certbot-nginx cron; do
+for pkg in curl wget git unzip sqlite3 libsqlite3-dev opendkim opendkim-tools certbot python3-certbot-nginx cron pigz openssl; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         apt-get install -y $pkg
     fi
@@ -717,10 +723,21 @@ www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active svc-*
 www-data ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/systemd/system/svc-*
 www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/systemd/system/svc-*
 www-data ALL=(ALL) NOPASSWD: /usr/bin/journalctl -u svc-* *
+# Panel-to-panel migration (single audited root helper)
+www-data ALL=(root) NOPASSWD: /usr/local/sbin/sada-mia-backup create *
+www-data ALL=(root) NOPASSWD: /usr/local/sbin/sada-mia-backup restore-start *
 EOF
 # Append the installer user entry separately as it needs variable expansion
 echo "$sudo_user_name ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/sadamiapanel
 chmod 0440 /etc/sudoers.d/sadamiapanel
+
+echo "==> 8.1 Installing migration helper"
+sed "s|@PANEL_DIR@|$CURRENT_DIR|" "$CURRENT_DIR/scripts/sada-mia-backup.sh" > /usr/local/sbin/sada-mia-backup
+chown root:root /usr/local/sbin/sada-mia-backup
+chmod 0755 /usr/local/sbin/sada-mia-backup
+mkdir -p /var/backups/sada-mia/.staging /var/backups/sada-mia/migration
+chown www-data:www-data /var/backups/sada-mia /var/backups/sada-mia/.staging /var/backups/sada-mia/migration
+chmod 0750 /var/backups/sada-mia /var/backups/sada-mia/.staging /var/backups/sada-mia/migration
 
 echo "==> 8. Setting up Panel Backend"
 cd backend
@@ -730,6 +747,8 @@ cp .env.example .env || true
 # Update server_ip setting in backend .env BEFORE migrations/seeders
 echo "==> Setting SERVER_IP in backend .env"
 grep -q "SERVER_IP=" .env && sed -i "s|^SERVER_IP=.*|SERVER_IP=$IP_ADDRESS|" .env || echo "SERVER_IP=$IP_ADDRESS" >> .env
+# Long jobs (migrations run up to 3h) must not be re-reserved by the database queue after the default 90s
+grep -q "^DB_QUEUE_RETRY_AFTER=" .env && sed -i "s|^DB_QUEUE_RETRY_AFTER=.*|DB_QUEUE_RETRY_AFTER=11000|" .env || echo "DB_QUEUE_RETRY_AFTER=11000" >> .env
 
 php artisan key:generate
 # Update APP_URL in backend .env
@@ -765,7 +784,10 @@ php artisan migrate
 php artisan db:seed --class=DatabaseSeeder --force
 php artisan storage:link || true
 php artisan optimize:clear
-chown -R www-data:www-data storage bootstrap/cache database public
+chown -R www-data:www-data storage bootstrap/cache public
+# Only the directory and the SQLite file need to be writable; leave migrations/seeders alone
+# (they are bind-mounted from the host in the Docker hot-reload setup)
+chown www-data:www-data database
 chmod -R 775 storage bootstrap/cache public
 
 # Ensure logos directory exists for branding customization

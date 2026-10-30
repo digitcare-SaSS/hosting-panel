@@ -61,6 +61,7 @@ The panel includes several custom Artisan commands for system orchestration and 
 | `php artisan app:ssl-renew`          | Renews all Let's Encrypt certificates and syncs status (Runs **Daily** via Scheduler). |
 | `php artisan app:panel-ssl {domain}` | Secures the hosting panel (port 8083) using an existing domain's certificate.          |
 | `php artisan cron:run {id}`          | Force-runs a specific UI-managed cron job and captures its output.                     |
+| `php artisan app:reip {old} {new}`   | Rewrites the server IP in settings and DNS records and regenerates BIND zones.         |
 
 ---
 
@@ -191,6 +192,31 @@ sudo chmod 664 backend/.env
 
 ---
 
+## 🚚 Server Migration (Panel to Panel)
+
+Move everything from one server to another from the panel itself. That covers apps, PostgreSQL databases and users, domains and DNS zones, email (mailboxes and DKIM), SSL certificates, background services, PM2 apps, cron jobs, panel settings and logins.
+
+Migration is **off by default**. While it's off, the **Migration** menu is hidden and the panel can be neither copied nor overwritten.
+
+1. **Both servers:** go to **Settings → System Settings → Server migration** and switch it on. Your password is required.
+2. **Old server:** open **Migration**. Choose how long the key is valid (1, 6 or 24 hours) and, ideally, the new server's IP. Then click **Generate migration key**. Copy the **panel address** and the **migration key**; each has its own Copy button. The key is shown **only once**; if you lose it, create a new one. The IP to enter is shown on the new server's Migration page under **This server's IP**.
+3. **New server** (a fresh install): open **Migration**, paste the key, adjust the old panel's address if needed, then click **Connect**. Check the summary, type `MIGRATE` and click **Start migration**. Progress is shown live.
+4. When it finishes, log in with the **old** server's admin account. Point your domains' A records and `ns1`–`ns4` glue at the new IP. Migration has switched itself **off** on both servers.
+
+**Security:**
+
+- **Off by default,** password-confirmed to switch on, and automatically off after a transfer.
+- **Your admin password is re-checked** before creating a key and before starting a migration. Attempts are rate-limited.
+- **The key is shown once and works once.** It expires after 1 to 24 hours and can be locked to the new server's IP.
+- **The key itself never crosses the network.** Every request between the panels is HMAC-signed with it, including a timestamp and a one-time nonce. Every answer is signed back, so neither side can be impersonated and nothing can be replayed. Failed attempts are rate-limited.
+- **The data travels as one AES-256 encrypted archive** that only the key can open. It is verified by SHA-256 after transfer and deleted from the old server immediately.
+- **Restores only write to the panel's known locations.**
+- **Every action is listed in the page's activity log,** including rejected connection attempts and their IPs.
+
+The old panel's port (default `8083`) must be reachable from the new server.
+
+---
+
 ## 🛑 Toggling Panel Services (Port Conflicts)
 
 If you are developing other projects on the same machine (using commands like `composer dev`, `npm run dev`, or `php artisan serve`), you might encounter port conflicts (e.g., ports 80, 5432, or 53 already in use). 
@@ -222,6 +248,20 @@ chmod +x start.sh
 
 Concurrently boots the **Laravel API** (8000) and **Vite React** (5173) server.
 _(Note: System operations like Nginx/PM2 require a native Ubuntu environment)._
+
+### 🐳 Docker with Hot Reload
+
+The Docker setup runs the full panel (systemd, Nginx, PostgreSQL, BIND9, mail, PM2), so system operations work too:
+
+```bash
+docker compose up -d
+```
+
+- **Panel UI with hot reload:** <http://localhost:8083> (or `panel.localhost:8083`). The panel's Nginx forwards the UI to the Vite dev server, so edits in `frontend/src` show up instantly without a page reload. <http://localhost:5173> reaches Vite directly. If the `frontend` container is stopped, 8083 falls back to the last production build (`npm run build`).
+- **Backend:** `backend/app`, `routes`, `config`, migrations and `scripts/` are bind-mounted into the container, so PHP changes are live on the next request.
+- **Queue:** the worker runs `queue:listen`, so job code reloads per job.
+- **Migrations:** new migrations run on container start. You can also run them yourself: `docker exec sada-mia-panel sudo -u www-data php /opt/sada-mia-hosting-panel/backend/artisan migrate`.
+- **Composer:** after changing dependencies, run `composer install` inside the container. `vendor/`, `.env`, `storage/` and the SQLite DB live in the container.
 
 ### 🔄 Restarting & Stopping Services
 

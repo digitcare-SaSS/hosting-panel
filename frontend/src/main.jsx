@@ -39,6 +39,7 @@ import BillableRoutesPage from './pages/BillableRoutesPage';
 import PaymentGatewaysPage from './pages/PaymentGatewaysPage';
 import ManagePlansPage from './pages/ManagePlansPage';
 import TransactionsPage from './pages/TransactionsPage';
+import MigrationPage from './pages/MigrationPage';
 
 // Portal
 import PortalLayout from './components/PortalLayout';
@@ -87,6 +88,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/cron-jobs" element={<CronPage />} />
               <Route path="/terminal" element={<TerminalPage />} />
               <Route path="/files" element={<FileManagerPage />} />
+              <Route path="/migration" element={<MigrationPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/queue" element={<QueueMonitorPage />} />
               <Route path="/server/nginx" element={<NginxPage />} />

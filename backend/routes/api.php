@@ -21,6 +21,9 @@ use App\Http\Controllers\Api\LoadBalancerSslController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\SubscriptionCheckController;
 use App\Http\Controllers\Api\BillableRouteController;
+use App\Http\Controllers\Api\MigrationController;
+use App\Http\Controllers\Api\MigrationSourceController;
+use App\Http\Middleware\VerifyMigrationSignature;
 
 use App\Http\Controllers\Api\PaymentController;
 use Illuminate\Support\Facades\Route;
@@ -120,6 +123,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/github/callback', [GitHubAuthController::class, 'callback']);
     Route::get('/github/repositories', [GitHubAuthController::class, 'repositories']);
     Route::post('/github/disconnect', [GitHubAuthController::class, 'disconnect']);
+
+    // Panel-to-panel migration
+    Route::get('/migration', [MigrationController::class, 'index']);
+    Route::post('/migration/confirm-password', [MigrationController::class, 'confirmPassword'])->middleware('throttle:5,1');
+    Route::put('/migration/enabled', [MigrationController::class, 'setEnabled']);
+    Route::post('/migration/key', [MigrationController::class, 'generateKey']);
+    Route::delete('/migration/key', [MigrationController::class, 'revokeKey']);
+    Route::post('/migration/connect', [MigrationController::class, 'connect']);
+    Route::post('/migration/start', [MigrationController::class, 'start']);
 
     // Settings
     Route::get('/settings', [SettingsController::class, 'index']);
@@ -296,6 +308,19 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 
+
+// Panel-to-panel migration: called by the NEW panel, authenticated by the signed migration key (not a login)
+Route::prefix('migration/source')
+    ->middleware([VerifyMigrationSignature::class, 'throttle:120,1'])
+    ->group(function () {
+        Route::post('/handshake', [MigrationSourceController::class, 'handshake']);
+        Route::post('/export', [MigrationSourceController::class, 'startExport']);
+        Route::get('/export', [MigrationSourceController::class, 'exportStatus']);
+        Route::get('/export/download', [MigrationSourceController::class, 'download']);
+        Route::post('/complete', [MigrationSourceController::class, 'complete']);
+    });
+// Progress survives the restore replacing the admin's session: authorised by the migration's own token
+Route::get('/public/migration/progress', [MigrationController::class, 'progress'])->middleware('throttle:120,1');
 
 // GitHub Webhook (Public)
 Route::post('/github/webhook', [GitHubWebhookController::class, 'handle']);

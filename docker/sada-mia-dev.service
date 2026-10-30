@@ -1,0 +1,13 @@
+[Unit]
+Description=Sada Mia Panel dev mode (hot reload)
+# Only when docker-compose bind-mounts the source tree
+ConditionPathIsMountPoint=/opt/sada-mia-hosting-panel/backend/app
+After=sada-mia-install.service sada-mia-queue.service php8.4-fpm.service postgresql.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/sada-mia-dev-setup
+
+[Install]
+WantedBy=multi-user.target
