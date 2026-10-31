@@ -242,7 +242,7 @@ class AppController extends Controller
         if ($deployment) {
             $deployment->update([
                 'status' => 'failed',
-                'log' => $deployment->log . "\n\n[FORCE STOP] Deployment terminated by user manually."
+                'log_output' => ($deployment->log_output ?? '') . "\n\n[FORCE STOP] Deployment terminated by user manually."
             ]);
         }
 

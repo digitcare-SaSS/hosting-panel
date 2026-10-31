@@ -96,6 +96,8 @@ class MigrationExportService
         $copy->exec("DELETE FROM settings WHERE key = '" . MigrationSwitch::SETTING . "'");
         $copy->exec('DELETE FROM migration_exports');
         $copy->exec('DELETE FROM migration_events');
+        // Includes the job packing this very export - it must not replay on the new server
+        $copy->exec('DELETE FROM jobs');
         $copy = null;
     }
 

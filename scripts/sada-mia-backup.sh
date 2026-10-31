@@ -457,6 +457,16 @@ cmd_restore() {
     artisan migrate --force
     artisan optimize:clear >/dev/null
 
+    # The snapshot carries the old server's queue: jobs it was running (the migration export
+    # itself, deploys) would replay here, and their deployments would show "deploying" forever
+    log "Clearing the old server's queued jobs"
+    as_www php -- "$sqlite" <<'PHP' || warn "could not clear old queued jobs - check the panel's Queue page"
+<?php
+$db = new PDO('sqlite:' . $argv[1]);
+$db->exec('DELETE FROM jobs');
+$db->exec("UPDATE deployments SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE status = 'deploying'");
+PHP
+
     # ── PostgreSQL ──
     log "Restoring PostgreSQL roles"
     # postgres and roundcube belong to this server's install (roundcube's password lives in its config)

@@ -16,7 +16,8 @@ class DeployApp implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 1200; // 20 minutes
+    public $timeout = 3600; // 1 hour: must cover git + install + build step timeouts, or the worker is killed mid-deploy
+    public $tries = 1; // A deploy killed mid-way must not silently re-run hours later (retry_after)
 
     public function __construct(
         protected App $app,
@@ -43,6 +44,23 @@ class DeployApp implements ShouldQueue
             }
 
             $this->fail($e);
+        }
+    }
+
+    /**
+     * Also runs when the worker kills the job on timeout, where handle()'s catch never runs.
+     */
+    public function failed(?\Throwable $e): void
+    {
+        $this->deployment->refresh();
+        if ($this->deployment->status !== 'deploying') {
+            return;
+        }
+
+        $this->deployment->update(['status' => 'failed', 'finished_at' => now()]);
+        $this->deployment->appendLog("\n[ERROR] " . ($e?->getMessage() ?? 'The deployment was stopped by the queue worker'));
+        if (!$this->zeroDowntime) {
+            $this->app->update(['status' => 'error']);
         }
     }
 }

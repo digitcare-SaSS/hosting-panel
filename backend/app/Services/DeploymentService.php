@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\Http;
 
 class DeploymentService
 {
+    // Turbopack compile + TypeScript check can take well over 10 minutes on a small VPS
+    private const BUILD_TIMEOUT = 1800;
+
     public function __construct(
         private ShellService $shell,
         private PortAssignmentService $portService,
@@ -165,7 +168,7 @@ class DeploymentService
         // === Step 4: Build & Bootstrap ===
         $log("[4/6] Building project and bootstrapping...");
         if ($app->type === 'nextjs') {
-            $exitCode = $this->shell->stream("npm run build", $deployPath, $log, 600);
+            $exitCode = $this->shell->stream("npm run build", $deployPath, $log, self::BUILD_TIMEOUT);
             if ($exitCode !== 0) {
                 throw new \RuntimeException("Next.js build failed");
             }
@@ -354,7 +357,7 @@ class DeploymentService
             );
         }
 
-        $exitCode = $this->shell->stream("npm run build", $targetDir, $log, 600);
+        $exitCode = $this->shell->stream("npm run build", $targetDir, $log, self::BUILD_TIMEOUT);
         if ($exitCode !== 0) {
             throw new \RuntimeException("Next.js build failed. The live version was not touched.");
         }
