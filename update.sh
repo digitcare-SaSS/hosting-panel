@@ -124,6 +124,8 @@ fi
 echo "==> 5. Restarting panel services"
 # php8.4-fpm won't start if any of its ReadWritePaths is missing
 mkdir -p /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /etc/nginx /etc/bind /etc/postfix /etc/dovecot /etc/opendkim
+# Without a boot unit www-data's PM2 daemon, and every Next.js app with it, is gone after a reboot
+pm2 startup systemd -u www-data --hp /var/www >/dev/null
 systemctl daemon-reload
 systemctl restart php8.4-fpm sada-mia-queue
 

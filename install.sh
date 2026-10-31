@@ -550,6 +550,9 @@ mkdir -p /var/www/.npm /var/www/.pm2 /var/www/.cache /var/www/.config
 chown -R www-data:www-data /var/www/.npm /var/www/.pm2 /var/www/.cache /var/www/.config
 chmod -R 775 /var/www/.npm /var/www/.pm2 /var/www/.cache /var/www/.config
 
+# Without a boot unit www-data's PM2 daemon, and every Next.js app with it, is gone after a reboot
+pm2 startup systemd -u www-data --hp /var/www >/dev/null
+
 echo "==> 7. Installing Adminer"
 ADMINER_DIR="/var/www/adminer"
 mkdir -p $ADMINER_DIR
