@@ -12,7 +12,10 @@ class PortAssignmentService
         $end   = (int) config('hosting.port_range_end', 9999);
 
         // Collect ports already used by existing apps
-        $usedPorts = App::whereNotNull('port')->pluck('port')->toArray();
+        $usedPorts = array_merge(
+            App::whereNotNull('port')->pluck('port')->toArray(),
+            App::whereNotNull('standby_port')->pluck('standby_port')->toArray(),
+        );
 
         for ($port = $start; $port <= $end; $port++) {
             if (in_array($port, $usedPorts)) {

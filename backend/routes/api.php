@@ -53,6 +53,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/apps/{app}', [AppController::class, 'show']);
     Route::delete('/apps/{app}', [AppController::class, 'destroy']);
     Route::post('/apps/{app}/deploy', [AppController::class, 'deploy']);
+    Route::post('/apps/{app}/deploy-zero-downtime', [AppController::class, 'deployZeroDowntime']);
     Route::post('/apps/{app}/php-version', [AppController::class, 'updatePhpVersion']);
     Route::post('/apps/{app}/force-stop-deployment', [AppController::class, 'forceStopDeployment']);
     Route::post('/apps/{app}/start', [AppController::class, 'start']);

@@ -16,17 +16,18 @@ class DeployApp implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 600; // 10 minutes
+    public $timeout = 1200; // 20 minutes
 
     public function __construct(
         protected App $app,
-        protected Deployment $deployment
+        protected Deployment $deployment,
+        protected bool $zeroDowntime = false
     ) {}
 
     public function handle(DeploymentService $deploymentService): void
     {
         try {
-            $deploymentService->runDeployment($this->app, $this->deployment);
+            $deploymentService->runDeployment($this->app, $this->deployment, $this->zeroDowntime);
         } catch (\Throwable $e) {
             Log::error('Background Deployment Failed', [
                 'app_id' => $this->app->id,
@@ -36,7 +37,10 @@ class DeployApp implements ShouldQueue
 
             $this->deployment->update(['status' => 'failed', 'finished_at' => now()]);
             $this->deployment->appendLog("\n[ERROR] " . $e->getMessage());
-            $this->app->update(['status' => 'error']);
+            // runDeployment already set the app status; a failed zero-downtime deploy keeps the old version running
+            if (!$this->zeroDowntime) {
+                $this->app->update(['status' => 'error']);
+            }
 
             $this->fail($e);
         }

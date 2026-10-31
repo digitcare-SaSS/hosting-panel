@@ -78,7 +78,7 @@ chown -R www-data:www-data dist
 chmod -R 755 dist
 
 echo "==> 4. Refreshing system packages and the migration helper"
-for pkg in pigz openssl sqlite3; do
+for pkg in pigz openssl sqlite3 rsync; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         apt-get install -y $pkg
     fi

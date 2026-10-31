@@ -17,6 +17,7 @@ A lightweight, self-hosted server management panel designed for Ubuntu Linux. Th
 - **Native Deployment:** Apps run directly on the host OS for maximum performance and lowest RAM overhead.
 - **Framework Support:** Optimized for **Next.js** (PM2), **Laravel** (PHP 8.4 + FPM), and **Static Sites**.
 - **Automated Pipeline:** Automatic Git integration, dependency installation (`npm`/`composer`), build execution, and Nginx reload.
+- **Zero-Downtime Deploys (Next.js):** Blue/green releases built in `.releases/<domain>/{blue,green}` with cached `node_modules` and `.next/cache`, health-checked on a standby port, then switched in with a graceful Nginx reload. A failed build or health check leaves the current version live.
 - **Lifecycle Control:** Simplified **Running** and **Stopped** status indicators with full start/stop/restart/deploy controls.
 - **Background Workers:** Manage application-specific background services (e.g., Laravel Queue Workers) via systemd.
 - **Environment Management:** Web-based `.env` file editor for seamless configuration.

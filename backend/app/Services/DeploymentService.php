@@ -7,6 +7,7 @@ use App\Models\Deployment;
 use App\Models\Customer;
 use App\Models\CustomerDeployment;
 use App\Models\LoadBalancer;
+use Illuminate\Support\Facades\Http;
 
 class DeploymentService
 {
@@ -83,10 +84,14 @@ class DeploymentService
         }
     }
 
-    public function runDeployment(App $app, Deployment $deployment): void
+    public function runDeployment(App $app, Deployment $deployment, bool $zeroDowntime = false): void
     {
         try {
-            $this->executeDeployment($app, $deployment);
+            if ($zeroDowntime) {
+                $this->executeZeroDowntimeDeployment($app, $deployment);
+            } else {
+                $this->executeDeployment($app, $deployment);
+            }
             $deployment->update(['status' => 'success', 'finished_at' => now()]);
             $app->update(['status' => 'running']);
 
@@ -102,7 +107,9 @@ class DeploymentService
         } catch (\Throwable $e) {
             $deployment->appendLog("\n[ERROR] " . $e->getMessage());
             $deployment->update(['status' => 'failed', 'finished_at' => now()]);
-            $app->update(['status' => 'error']);
+            // A failed zero-downtime deploy leaves the previous version serving traffic
+            $stillLive = $zeroDowntime && $this->pm2Service->status($app) === 'online';
+            $app->update(['status' => $stillLive ? 'running' : 'error']);
             throw $e;
         }
     }
@@ -118,37 +125,7 @@ class DeploymentService
 
         // === Step 1: Clone or pull ===
         $log("[1/6] Cloning / pulling repository...");
-
-        // Fix: Mark directory as safe for git to avoid "dubious ownership" errors
-        $this->shell->run("git config --global --add safe.directory " . escapeshellarg($deployPath));
-
-        $gitUrl = $app->git_url;
-
-        // If this app is linked to the panel's GitHub integration, inject the token to allow cloning private repos
-        if ($app->github_id || $app->github_full_name) {
-            $token = \App\Models\Setting::get('github_access_token');
-            if ($token && preg_match('#^https://github\.com/#', $gitUrl)) {
-                $log("Authorized GitHub app detected. Injecting access token into clone URL...");
-                // x-access-token is the standard username for GitHub Apps/OAuth tokens in URLs
-                $gitUrl = preg_replace('#^https://github\.com/#', "https://x-access-token:{$token}@github.com/", $gitUrl);
-            }
-        }
-
-        if (is_dir("{$deployPath}/.git")) {
-            // Ensure remote URL has the token (or is updated if it changed)
-            $this->shell->run("git -C " . escapeshellarg($deployPath) . " remote set-url origin " . escapeshellarg($gitUrl));
-            $exitCode = $this->shell->stream("git pull origin " . escapeshellarg($app->branch), $deployPath, $log);
-        } else {
-            @mkdir($deployPath, 0755, true);
-            $cloneCmd = "git clone --branch " . escapeshellarg($app->branch) . " --depth 1 " . escapeshellarg($gitUrl) . " " . escapeshellarg($deployPath);
-            $exitCode = $this->shell->stream($cloneCmd, $basePath, $log);
-        }
-        if ($exitCode !== 0) {
-            throw new \RuntimeException("Git clone/pull failed with exit code {$exitCode}");
-        }
-
-        // Save deploy path
-        $app->update(['deploy_path' => $deployPath]);
+        $this->syncRepository($app, $basePath, $deployPath, $log);
 
         // === Step 2: Write .env file ===
         $log("[2/6] Writing environment variables...");
@@ -227,8 +204,9 @@ class DeploymentService
         }
 
         if ($app->type === 'nextjs') {
-            // Stop existing PM2 process if any
-            $this->pm2Service->delete($app);
+            // Stop existing PM2 process if any (including blue/green slots from zero-downtime deploys)
+            $this->pm2Service->deleteAll($app);
+            $app->update(['active_slot' => null]);
             $result = $this->pm2Service->start($app);
             if ($result['exit_code'] !== 0) {
                 throw new \RuntimeException("PM2 start failed: " . $result['output']);
@@ -256,6 +234,257 @@ class DeploymentService
         }
 
         $log("✅ Deployment complete! Domain: {$app->domain}");
+    }
+
+    /**
+     * Blue/green deploy for Next.js: build in an idle release directory, boot it on the standby
+     * port, health-check it, then point Nginx at it with a graceful reload. The live version keeps
+     * serving traffic until the switch, and stays live if any step before the switch fails.
+     */
+    private function executeZeroDowntimeDeployment(App $app, Deployment $deployment): void
+    {
+        if ($app->type !== 'nextjs') {
+            throw new \RuntimeException("Zero-downtime deployment is only supported for Next.js apps");
+        }
+
+        $basePath = config('hosting.apps_base_path', '/var/www/hosting-apps');
+        $deployPath = "{$basePath}/{$app->domain}";
+
+        $log = function (string $line) use ($deployment) {
+            $deployment->appendLog($line);
+        };
+
+        if ($this->shell->run("command -v rsync")['exit_code'] !== 0) {
+            throw new \RuntimeException("rsync is required for zero-downtime deployments. Install it with: sudo apt-get install -y rsync");
+        }
+
+        // === Step 1: Clone or pull (source only, the live process runs from a release directory) ===
+        $log("[1/8] Cloning / pulling repository...");
+        $this->syncRepository($app, $basePath, $deployPath, $log);
+
+        // === Step 2: Ports & slots ===
+        if (!$app->port) {
+            $app->update(['port' => $this->portService->assignPort()]);
+        }
+        if (!$app->standby_port) {
+            $app->update(['standby_port' => $this->portService->assignPort()]);
+        }
+        $app->refresh();
+
+        $liveSlot   = $app->active_slot;
+        $targetSlot = $liveSlot === 'blue' ? 'green' : 'blue';
+        $liveDir    = $liveSlot ? $app->releasePath($liveSlot) : $deployPath;
+        $targetDir  = $app->releasePath($targetSlot);
+        $livePort   = $app->port;
+        $targetPort = $app->standby_port;
+        $liveName   = $app->processName($liveSlot);
+        $targetName = $app->processName($targetSlot);
+
+        $log("[2/8] Writing environment variables...");
+        $this->writeEnvFile($app);
+        $log("Live: {$liveName} on port {$livePort}. Building {$targetSlot} release for port {$targetPort}.");
+
+        // Clear a leftover standby process from an earlier failed attempt
+        $this->pm2Service->deleteProcess($targetName);
+
+        // === Step 3: Sync source into the idle release ===
+        $log("[3/8] Preparing {$targetSlot} release...");
+        @mkdir($targetDir, 0755, true);
+        $exitCode = $this->shell->stream(
+            "rsync -a --delete --exclude=/.git --exclude=/node_modules --exclude=/.next "
+                . escapeshellarg("{$deployPath}/") . " " . escapeshellarg("{$targetDir}/"),
+            $basePath,
+            $log
+        );
+        if ($exitCode !== 0) {
+            throw new \RuntimeException("Copying source into release directory failed with exit code {$exitCode}");
+        }
+
+        // Link the managed env file so edits from the Environment tab apply on restart
+        $envName = basename($app->getEnvFilePath());
+        if (file_exists("{$deployPath}/{$envName}")) {
+            $this->shell->run("ln -sfn " . escapeshellarg("{$deployPath}/{$envName}") . " " . escapeshellarg("{$targetDir}/{$envName}"));
+        }
+
+        // === Step 4: Dependencies (reuse live node_modules when the lockfile is unchanged) ===
+        $log("[4/8] Installing dependencies...");
+        $depsHash = $this->dependencyHash($targetDir);
+        $markerFile = "node_modules/.panel-deps-hash";
+        $cachedHash = @file_get_contents("{$liveDir}/{$markerFile}") ?: null;
+
+        if (is_dir("{$liveDir}/node_modules")) {
+            $log("Restoring node_modules cache from live release...");
+            $this->shell->stream(
+                "rsync -a --delete " . escapeshellarg("{$liveDir}/node_modules/") . " " . escapeshellarg("{$targetDir}/node_modules/"),
+                $basePath,
+                $log,
+                600
+            );
+        }
+
+        $currentUser = trim(shell_exec('whoami'));
+        if ($currentUser !== 'www-data') {
+            $this->shell->run("sudo chown -R www-data:www-data " . escapeshellarg($targetDir));
+        }
+
+        if ($cachedHash !== null && $cachedHash === $depsHash) {
+            $log("Dependencies unchanged - reusing cached node_modules.");
+        } else {
+            $exitCode = $this->shell->stream("npm install --production=false --prefer-offline --no-audit --no-fund", $targetDir, $log, 300);
+            if ($exitCode !== 0) {
+                $log("[WARN] Incremental npm install failed. Falling back to clean install (npm ci)...");
+                $exitCode = $this->shell->stream("npm ci --production=false --prefer-offline", $targetDir, $log, 300);
+            }
+            if ($exitCode !== 0) {
+                throw new \RuntimeException("NPM dependency installation failed with exit code {$exitCode}. The live version was not touched.");
+            }
+            file_put_contents("{$targetDir}/{$markerFile}", $depsHash);
+        }
+
+        // === Step 5: Build with the previous build cache ===
+        $log("[5/8] Building project...");
+        if (is_dir("{$liveDir}/.next/cache")) {
+            $log("Restoring Next.js build cache from live release...");
+            @mkdir("{$targetDir}/.next", 0755, true);
+            $this->shell->stream(
+                "rsync -a --delete " . escapeshellarg("{$liveDir}/.next/cache/") . " " . escapeshellarg("{$targetDir}/.next/cache/"),
+                $basePath,
+                $log,
+                600
+            );
+        }
+
+        $exitCode = $this->shell->stream("npm run build", $targetDir, $log, 600);
+        if ($exitCode !== 0) {
+            throw new \RuntimeException("Next.js build failed. The live version was not touched.");
+        }
+
+        if ($currentUser !== 'www-data') {
+            $this->shell->run("sudo chown -R www-data:www-data " . escapeshellarg($targetDir));
+        }
+
+        // === Step 6: Boot the new release on the standby port and health-check it ===
+        $log("[6/8] Starting {$targetName} on port {$targetPort}...");
+        $result = $this->pm2Service->startProcess($targetName, $targetDir, $targetPort);
+        if ($result['exit_code'] !== 0) {
+            $this->pm2Service->deleteProcess($targetName);
+            throw new \RuntimeException("PM2 start failed: " . $result['output']);
+        }
+
+        if (!$this->waitUntilHealthy($targetPort, $log)) {
+            $log($this->pm2Service->processLogs($targetName, 40));
+            $this->pm2Service->deleteProcess($targetName);
+            throw new \RuntimeException("New release did not become healthy on port {$targetPort}. The live version was not touched.");
+        }
+
+        // === Step 7: Switch traffic ===
+        $log("[7/8] Switching traffic to {$targetSlot} release...");
+        $nginxTest = $this->shell->run("sudo nginx -t");
+        if ($nginxTest['exit_code'] !== 0) {
+            $this->pm2Service->deleteProcess($targetName);
+            throw new \RuntimeException("Nginx config test failed, traffic was not switched: " . $nginxTest['output']);
+        }
+
+        $app->update([
+            'port'         => $targetPort,
+            'standby_port' => $livePort,
+            'active_slot'  => $targetSlot,
+        ]);
+        $app->refresh();
+
+        foreach ($app->loadBalancers as $lb) {
+            $this->nginxService->generateAppInternalConfig($app, $lb, 60000 + $app->id);
+        }
+        $this->nginxService->generate($app);
+        $this->nginxService->generateSsl($app);
+        $this->writeEnvFile($app);
+        $this->pm2Service->save();
+
+        // === Step 8: Drain and retire the old release ===
+        $log("[8/8] Draining in-flight requests, then stopping {$liveName}...");
+        sleep(10);
+        $this->pm2Service->deleteProcess($liveName);
+        $this->pm2Service->save();
+
+        $dnsOutput = $this->dnsService->reloadBind($app->domainRecord);
+        $log($dnsOutput);
+
+        $log("[BG] Registering recommended background services...");
+        try {
+            $this->bgServiceManager->installRecommended($app);
+            $log("[BG] Background services registered. Start them from the Services tab.");
+        } catch (\Throwable $e) {
+            $log("[BG] Warning: could not register background services: " . $e->getMessage());
+        }
+
+        $log("✅ Zero-downtime deployment complete! {$app->domain} is now served by {$targetName} on port {$targetPort}.");
+    }
+
+    private function dependencyHash(string $dir): string
+    {
+        $content = '';
+        foreach (['package.json', 'package-lock.json', 'npm-shrinkwrap.json'] as $file) {
+            if (file_exists("{$dir}/{$file}")) {
+                $content .= $file . "\0" . file_get_contents("{$dir}/{$file}") . "\0";
+            }
+        }
+        return hash('sha256', $content);
+    }
+
+    /**
+     * Any HTTP response below 500 counts as healthy (apps may redirect or 404 on "/").
+     */
+    private function waitUntilHealthy(int $port, \Closure $log, int $timeoutSeconds = 60): bool
+    {
+        $deadline = time() + $timeoutSeconds;
+        while (time() < $deadline) {
+            try {
+                $response = Http::timeout(5)->withoutRedirecting()->get("http://127.0.0.1:{$port}/");
+                if ($response->status() < 500) {
+                    $log("Health check passed (HTTP {$response->status()}).");
+                    return true;
+                }
+                $log("Health check got HTTP {$response->status()}, retrying...");
+            } catch (\Throwable $e) {
+                // Not listening yet
+            }
+            sleep(2);
+        }
+        return false;
+    }
+
+    private function syncRepository(App $app, string $basePath, string $deployPath, \Closure $log): void
+    {
+        // Fix: Mark directory as safe for git to avoid "dubious ownership" errors
+        $this->shell->run("git config --global --add safe.directory " . escapeshellarg($deployPath));
+
+        $gitUrl = $app->git_url;
+
+        // If this app is linked to the panel's GitHub integration, inject the token to allow cloning private repos
+        if ($app->github_id || $app->github_full_name) {
+            $token = \App\Models\Setting::get('github_access_token');
+            if ($token && preg_match('#^https://github\.com/#', $gitUrl)) {
+                $log("Authorized GitHub app detected. Injecting access token into clone URL...");
+                // x-access-token is the standard username for GitHub Apps/OAuth tokens in URLs
+                $gitUrl = preg_replace('#^https://github\.com/#', "https://x-access-token:{$token}@github.com/", $gitUrl);
+            }
+        }
+
+        if (is_dir("{$deployPath}/.git")) {
+            // Ensure remote URL has the token (or is updated if it changed)
+            $this->shell->run("git -C " . escapeshellarg($deployPath) . " remote set-url origin " . escapeshellarg($gitUrl));
+            $exitCode = $this->shell->stream("git pull origin " . escapeshellarg($app->branch), $deployPath, $log);
+        } else {
+            @mkdir($deployPath, 0755, true);
+            $cloneCmd = "git clone --branch " . escapeshellarg($app->branch) . " --depth 1 " . escapeshellarg($gitUrl) . " " . escapeshellarg($deployPath);
+            $exitCode = $this->shell->stream($cloneCmd, $basePath, $log);
+        }
+        if ($exitCode !== 0) {
+            throw new \RuntimeException("Git clone/pull failed with exit code {$exitCode}");
+        }
+
+        // Save deploy path
+        $app->update(['deploy_path' => $deployPath]);
     }
 
     private function bootstrapLaravel(App $app, string $deployPath, \Closure $log): void

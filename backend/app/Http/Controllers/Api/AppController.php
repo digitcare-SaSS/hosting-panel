@@ -215,6 +215,27 @@ class AppController extends Controller
         ]);
     }
 
+    public function deployZeroDowntime(AppModel $app)
+    {
+        if ($app->type !== 'nextjs') {
+            return response()->json(['error' => 'Zero-downtime deployment is only available for Next.js apps.'], 422);
+        }
+
+        $app->update(['status' => 'deploying']);
+        $deployment = Deployment::create([
+            'app_id' => $app->id,
+            'status'     => 'deploying',
+            'log_output' => 'Starting zero-downtime deployment...'
+        ]);
+
+        DeployApp::dispatch($app, $deployment, true);
+
+        return response()->json([
+            'message'    => 'Zero-downtime deployment triggered',
+            'deployment' => $deployment
+        ]);
+    }
+
     public function forceStopDeployment(AppModel $app)
     {
         $deployment = $app->deployments()->where('status', 'deploying')->latest()->first();

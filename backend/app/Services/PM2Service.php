@@ -10,27 +10,44 @@ class PM2Service
 
     public function start(App $app): array
     {
-        $name = $app->domain;
-        $path = $app->deploy_path;
+        return $this->startProcess($app->pm2Name(), $app->runtimePath(), $app->port);
+    }
 
+    public function startProcess(string $name, string $path, int $port): array
+    {
         // Next.js uses `npm run start` bound to specific port
-        $command = "PORT={$app->port} pm2 start npm --name \"{$name}\" -- run start";
+        $command = "PORT={$port} pm2 start npm --name \"{$name}\" -- run start";
         return $this->shell->run($command, $path);
     }
 
     public function stop(App $app): array
     {
-        return $this->shell->run("pm2 stop \"{$app->domain}\"");
+        return $this->shell->run("pm2 stop \"{$app->pm2Name()}\"");
     }
 
     public function restart(App $app): array
     {
-        return $this->shell->run("pm2 restart \"{$app->domain}\"");
+        return $this->shell->run("pm2 restart \"{$app->pm2Name()}\"");
     }
 
     public function delete(App $app): array
     {
-        return $this->shell->run("pm2 delete \"{$app->domain}\"");
+        return $this->deleteProcess($app->pm2Name());
+    }
+
+    public function deleteProcess(string $name): array
+    {
+        return $this->shell->run("pm2 delete \"{$name}\"");
+    }
+
+    /**
+     * Remove the classic process and both blue/green slot processes.
+     */
+    public function deleteAll(App $app): void
+    {
+        foreach ([null, 'blue', 'green'] as $slot) {
+            $this->deleteProcess($app->processName($slot));
+        }
     }
 
     public function status(App $app): string
@@ -42,7 +59,7 @@ class PM2Service
 
         $processes = json_decode($result['output'], true) ?? [];
         foreach ($processes as $proc) {
-            if ($proc['name'] === $app->domain) {
+            if ($proc['name'] === $app->pm2Name()) {
                 return $proc['pm2_env']['status'] ?? 'unknown';
             }
         }
@@ -51,7 +68,12 @@ class PM2Service
 
     public function logs(App $app, int $lines = 100): string
     {
-        $result = $this->shell->run("pm2 logs \"{$app->domain}\" --nostream --lines {$lines}");
+        return $this->processLogs($app->pm2Name(), $lines);
+    }
+
+    public function processLogs(string $name, int $lines = 100): string
+    {
+        $result = $this->shell->run("pm2 logs \"{$name}\" --nostream --lines {$lines}");
         return $result['output'];
     }
 

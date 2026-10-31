@@ -269,7 +269,7 @@ export default function AppDetailPage() {
         return;
       }
       await api.post(`/apps/${id}/${action}`);
-      if (action === 'deploy') {
+      if (action === 'deploy' || action === 'deploy-zero-downtime') {
         setActiveTab('deployments');
         loadDeployments();
       }
@@ -758,6 +758,18 @@ export default function AppDetailPage() {
              }
              {app.status === 'deploying' ? 'Deploying...' : (app.status === 'error' ? 'Retry Deploy' : 'Deploy')}
            </Button>
+
+           {app.type === 'nextjs' && app.status !== 'deploying' && (
+             <Button
+               size="sm"
+               variant="outline"
+               onClick={() => handleAction('deploy-zero-downtime')}
+               disabled={actionLoading}
+               title="Build in a separate release, then switch traffic once it is healthy"
+             >
+               <Zap className="mr-2 h-4 w-4" /> Zero-Downtime Deploy
+             </Button>
+           )}
 
            {app.status === 'deploying' && (
              <Button 
@@ -2521,9 +2533,11 @@ export default function AppDetailPage() {
       <ConfirmationDialog
         open={!!pendingAction}
         onOpenChange={(open) => !open && setPendingAction(null)}
-        title={`${pendingAction?.charAt(0).toUpperCase() + pendingAction?.slice(1)} App`}
-        description={`Are you sure you want to ${pendingAction} this app?`}
-        confirmText={pendingAction === 'delete' ? 'Delete App' : pendingAction === 'deploy' ? 'Deploy now' : 'Confirm'}
+        title={pendingAction === 'deploy-zero-downtime' ? 'Zero-Downtime Deploy' : `${pendingAction?.charAt(0).toUpperCase() + pendingAction?.slice(1)} App`}
+        description={pendingAction === 'deploy-zero-downtime'
+          ? 'The new version is built in a separate release directory while the current one keeps serving traffic. Traffic switches only after the new version passes a health check; if anything fails, the current version stays live. Files your app writes into its own directory at runtime are not carried over to the new release.'
+          : `Are you sure you want to ${pendingAction} this app?`}
+        confirmText={pendingAction === 'delete' ? 'Delete App' : (pendingAction === 'deploy' || pendingAction === 'deploy-zero-downtime') ? 'Deploy now' : 'Confirm'}
         variant={pendingAction === 'delete' ? 'destructive' : 'default'}
         isLoading={actionLoading}
         onConfirm={handleConfirmAction}

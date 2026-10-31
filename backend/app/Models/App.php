@@ -16,6 +16,8 @@ class App extends Model
         'branch',
         'deploy_path',
         'port',
+        'standby_port',
+        'active_slot',
         'status',
         'php_version',
         'github_full_name',
@@ -33,6 +35,7 @@ class App extends Model
 
     protected $casts = [
         'port' => 'integer',
+        'standby_port' => 'integer',
         'auto_deploy' => 'boolean',
         'hide_guidelines' => 'boolean',
         'ssl_enabled' => 'boolean',
@@ -45,6 +48,36 @@ class App extends Model
         $default = ($this->type === 'nextjs') ? '.env.production' : '.env';
         $name = $this->env_vars ?: $default;
         return ($this->deploy_path ?: '') . "/{$name}";
+    }
+
+    /**
+     * Directory of a blue/green release used by zero-downtime deploys.
+     */
+    public function releasePath(string $slot): string
+    {
+        $basePath = config('hosting.apps_base_path', '/var/www/hosting-apps');
+        return "{$basePath}/.releases/{$this->domain}/{$slot}";
+    }
+
+    /**
+     * Directory the live Next.js process runs from.
+     */
+    public function runtimePath(): ?string
+    {
+        return $this->active_slot ? $this->releasePath($this->active_slot) : $this->deploy_path;
+    }
+
+    /**
+     * PM2 process name for a slot (null = classic deploy from deploy_path).
+     */
+    public function processName(?string $slot): string
+    {
+        return $slot ? "{$this->domain}-{$slot}" : $this->domain;
+    }
+
+    public function pm2Name(): string
+    {
+        return $this->processName($this->active_slot);
     }
 
     protected static function booted()

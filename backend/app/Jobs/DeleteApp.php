@@ -59,7 +59,8 @@ class DeleteApp implements ShouldQueue
             Log::info("Step 2: PM2 Cleanup");
             try {
                 if ($app->type === 'nextjs') {
-                    $pm2Service->delete($app);
+                    $pm2Service->deleteAll($app);
+                    $pm2Service->save();
                 }
             } catch (\Throwable $e) {
                 Log::warning("Cleanup PM2 failed for app {$app->id}: " . $e->getMessage());
@@ -152,6 +153,15 @@ class DeleteApp implements ShouldQueue
                     }
                 } else {
                     Log::warning("Filesystem cleanup skipped: No deploy_path or domain available.");
+                }
+
+                // Blue/green release directories from zero-downtime deploys
+                if (!empty($this->appData['domain'])) {
+                    $basePath = config('hosting.apps_base_path', '/var/www/hosting-apps');
+                    $releasesPath = "{$basePath}/.releases/{$this->appData['domain']}";
+                    if (is_dir($releasesPath)) {
+                        app(\App\Services\FileManagerService::class)->delete($releasesPath);
+                    }
                 }
             } catch (\Throwable $e) {
                 Log::warning("Cleanup Filesystem failed for app {$app->id}: " . $e->getMessage());

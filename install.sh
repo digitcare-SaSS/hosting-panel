@@ -214,7 +214,7 @@ export DEBIAN_FRONTEND=noninteractive
 echo "==> 1. Updating packages"
 apt-get update
 # Install basic utilities if missing
-for pkg in curl wget git unzip sqlite3 libsqlite3-dev opendkim opendkim-tools certbot python3-certbot-nginx cron pigz openssl; do
+for pkg in curl wget git unzip rsync sqlite3 libsqlite3-dev opendkim opendkim-tools certbot python3-certbot-nginx cron pigz openssl; do
     if ! dpkg -s $pkg >/dev/null 2>&1; then
         apt-get install -y $pkg
     fi
