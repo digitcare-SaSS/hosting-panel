@@ -970,6 +970,16 @@ EOF
 ln -sf /etc/nginx/sites-available/00-default /etc/nginx/sites-enabled/
 fi
 
+# The default bucket (64) breaks nginx -t, and with it certbot, once a long server_name is added
+NGINX_CONF=/etc/nginx/nginx.conf
+if grep -qE '^\s*server_names_hash_bucket_size' "$NGINX_CONF"; then
+    sed -i -E 's/^(\s*)server_names_hash_bucket_size\s+[0-9]+;/\1server_names_hash_bucket_size 128;/' "$NGINX_CONF"
+elif grep -qE '^\s*#\s*server_names_hash_bucket_size' "$NGINX_CONF"; then
+    sed -i -E 's/^(\s*)#\s*server_names_hash_bucket_size\s+[0-9]+;/\1server_names_hash_bucket_size 128;/' "$NGINX_CONF"
+else
+    sed -i -E '0,/^\s*http\s*\{/s//&\n\tserver_names_hash_bucket_size 128;/' "$NGINX_CONF"
+fi
+
 nginx -t && systemctl restart nginx
 
 # Every API call returns 502 without PHP-FPM, so fail loudly here instead of reporting success

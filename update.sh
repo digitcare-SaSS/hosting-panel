@@ -106,6 +106,21 @@ else
 fi
 rm -f "$SUDOERS_TMP"
 
+# The default bucket (64) breaks nginx -t, and with it certbot, once a long server_name is added
+NGINX_CONF=/etc/nginx/nginx.conf
+if grep -qE '^\s*server_names_hash_bucket_size' "$NGINX_CONF"; then
+    sed -i -E 's/^(\s*)server_names_hash_bucket_size\s+[0-9]+;/\1server_names_hash_bucket_size 128;/' "$NGINX_CONF"
+elif grep -qE '^\s*#\s*server_names_hash_bucket_size' "$NGINX_CONF"; then
+    sed -i -E 's/^(\s*)#\s*server_names_hash_bucket_size\s+[0-9]+;/\1server_names_hash_bucket_size 128;/' "$NGINX_CONF"
+else
+    sed -i -E '0,/^\s*http\s*\{/s//&\n\tserver_names_hash_bucket_size 128;/' "$NGINX_CONF"
+fi
+if nginx -t; then
+    systemctl reload nginx
+else
+    echo "    WARNING: nginx -t failed, not reloading nginx"
+fi
+
 echo "==> 5. Restarting panel services"
 # php8.4-fpm won't start if any of its ReadWritePaths is missing
 mkdir -p /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /etc/nginx /etc/bind /etc/postfix /etc/dovecot /etc/opendkim
