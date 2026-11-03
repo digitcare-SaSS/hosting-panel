@@ -13,7 +13,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         systemd systemd-sysv dbus sudo ca-certificates curl wget git unzip \
         gnupg software-properties-common openssl acl procps iproute2 \
-        sqlite3 libsqlite3-dev cron less nano socat \
+        sqlite3 libsqlite3-dev cron less nano socat rsync pigz \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-install the packages install.sh would otherwise fetch on first boot

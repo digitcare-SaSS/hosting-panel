@@ -259,8 +259,14 @@ class DeploymentService
 
         // `command` is a shell builtin; ShellService prefixes `env -i`, which can only exec binaries,
         // so the lookup must run inside a shell.
-        if ($this->shell->run("sh -c 'command -v rsync'")['exit_code'] !== 0) {
-            throw new \RuntimeException("rsync is required for zero-downtime deployments. Install it with: sudo apt-get install -y rsync");
+        $rsyncCheck = $this->shell->run("sh -c 'command -v rsync'");
+        if ($rsyncCheck['exit_code'] !== 0) {
+            throw new \RuntimeException(sprintf(
+                "rsync is required for zero-downtime deployments. Install it with: sudo apt-get install -y rsync (lookup exit code %s, PATH=%s, output: %s)",
+                $rsyncCheck['exit_code'],
+                getenv('PATH') ?: '(empty, using default)',
+                trim($rsyncCheck['output']) ?: '(none)'
+            ));
         }
 
         // === Step 1: Clone or pull (source only, the live process runs from a release directory) ===
