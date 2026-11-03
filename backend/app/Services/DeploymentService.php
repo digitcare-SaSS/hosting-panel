@@ -257,7 +257,9 @@ class DeploymentService
             $deployment->appendLog($line);
         };
 
-        if ($this->shell->run("command -v rsync")['exit_code'] !== 0) {
+        // `command` is a shell builtin; ShellService prefixes `env -i`, which can only exec binaries,
+        // so the lookup must run inside a shell.
+        if ($this->shell->run("sh -c 'command -v rsync'")['exit_code'] !== 0) {
             throw new \RuntimeException("rsync is required for zero-downtime deployments. Install it with: sudo apt-get install -y rsync");
         }
 
